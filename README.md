@@ -1,115 +1,402 @@
-# GLD²-GNN: Gait Graph Learning for Parkinson's Disease Detection
+# GLD²-GNN: Global-Local Dynamic Directed Graph Neural Network for Parkinson's Disease Detection
 
-An implementation of the published research paper on graph learning for Parkinson's disease detection using Vertical Ground Reaction Force (VGRF) data.
+> **Unofficial Implementation** of the paper:
+> *"A Global-Local Dynamic Directed Graph Neural Network for Parkinson's Disease Detection"*
+> Xiaotian Wang, Guanhai Zhou, Zhifu Zhao, Xiaoyi Zhang, Fu Li, Fei Qi
+> **IEEE Transactions on Neural Systems and Rehabilitation Engineering, Vol. 33, 2025**
+> DOI: [10.1109/TNSRE.2025.3614430](https://doi.org/10.1109/TNSRE.2025.3614430)
 
-This repository implements **GLD²-GNN** (Spatial-Temporal and Dynamic Graph Neural Networks) designed to identify Parkinson's Disease directly from gait data cycles extracted from foot sensors. 
+---
 
-It provides standard routines for data downloading, segmentation, augmentation, spatial-temporal graph construction, two-stream graph parsing, and training via cross-dataset or mixed-data K-fold cross-validation.
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Results](#results)
+- [Project Structure](#project-structure)
+- [Prerequisites & Installation](#prerequisites--installation)
+- [Dataset Setup](#dataset-setup)
+- [Running Experiments](#running-experiments)
+- [Reproducing Paper Results](#reproducing-paper-results)
+- [Credits & Citation](#credits--citation)
+- [Disclaimer](#disclaimer)
+
+---
+
+## Overview
+
+Parkinson's Disease (PD) causes measurable changes in gait patterns that can be captured through **Vertical Ground Reaction Force (VGRF)** signals — pressure data from 16 sensors embedded in shoe insoles.
+
+This repository implements GLD²-GNN, which treats VGRF signals as **dynamic directed graphs** rather than flat grid signals. The core insight is that plantar pressure transmission paths change at every phase of the gait cycle, and static graph methods miss these critical temporal topology changes.
+
+**Key contributions implemented:**
+- **Dynamic Graph Learning (DGL) unit** — 5-branch architecture learning global and local adjacency matrices per time slot
+- **Dynamic Directed Graph Network (DyDGN) unit** — aggregates node, edge, and dynamic edge features simultaneously
+- **Temporal Convolutional Network (TCN) unit** — captures local gait-cycle temporal patterns with separate parameters for nodes and edges
+- **Two-stream framework** — parallel time stream and motion stream with learnable α-fusion
+
+---
+
+## Architecture
+
+```
+VGRF Input (16 sensors)
+        │
+        ▼
+Two-Stream Framework
+   ┌────┴────┐
+   │         │
+Time       Motion
+Stream     Stream
+   │         │
+   └────┬────┘
+        │
+  ┌─────▼──────┐  ×4 blocks
+  │ DyDGNN     │
+  │  ├─ DGL    │  ← learns dynamic adjacency (5 branches)
+  │  ├─ DyDGN  │  ← spatial feature aggregation
+  │  └─ TCN    │  ← temporal feature extraction
+  └─────┬──────┘
+        │
+  Classification Head
+  (concat node + edge features → sigmoid)
+        │
+   α-weighted fusion
+        │
+   PD / Healthy Control
+```
+
+**Channel schedule across 4 DyDGNN blocks:**
+
+| Block | C\_in | C\_out | Time slots (s) |
+|-------|-------|--------|----------------|
+| 1     | 1     | 32     | 4              |
+| 2     | 32    | 32     | 8              |
+| 3     | 32    | 32     | 8              |
+| 4     | 32    | 64     | 8              |
+
+---
+
+## Results
+
+Results from the original paper (Tables IV & V) that this implementation targets:
+
+### Cross-Dataset Validation (Table IV)
+
+| Train → Test | Acc (%)       | F1 (%)        | G-mean (%)    |
+|--------------|---------------|---------------|---------------|
+| Ga+Ju → Si   | 81.25 ± 1.10  | 83.34 ± 0.82  | 83.40 ± 0.78  |
+| Ga+Si → Ju   | 87.21 ± 0.87  | 92.40 ± 0.59  | 92.52 ± 0.64  |
+| Si+Ju → Ga   | 81.41 ± 0.63  | 87.57 ± 0.36  | 88.14 ± 0.38  |
+
+### Mixed-Data Cross-Validation (Table V)
+
+| Folds   | Acc (%)       | F1 (%)        | G-mean (%)    |
+|---------|---------------|---------------|---------------|
+| 5-fold  | 98.48 ± 0.39  | 98.85 ± 0.29  | 98.85 ± 0.29  |
+| 10-fold | 97.72 ± 0.88  | 98.26 ± 0.67  | 98.27 ± 0.67  |
+
+*All results are for GLD²-GNN (Ours) as reported in the original paper.*
+
+---
+
+## Project Structure
+
+```
+gld2_gnn/
+│
+├── graph_construction.py   # Predefined 16-node directed graph (S, D matrices)
+├── data_loader.py          # PhysioNet loading, gait segmentation, augmentation
+├── dgl_unit.py             # 5-branch Dynamic Graph Learning unit
+├── dydgn_unit.py           # Dynamic Directed Graph Network unit
+├── tcn_unit.py             # Temporal Convolutional Network unit
+├── model.py                # Full GLD²-GNN model + two-stream fusion
+├── train.py                # Training loop, cross-dataset & k-fold CV
+├── download_data.py        # PhysioNet dataset downloader
+│
+├── requirements.txt
+├── .gitignore
+│
+├── data/                   # Downloaded datasets (created by download_data.py)
+│   ├── Ga/
+│   ├── Ju/
+│   └── Si/
+│
+└── checkpoints/            # Saved model weights + result JSON (auto-created)
+```
 
 ---
 
 ## 🛠 Prerequisites & Installation
 
-### 1. Requirements
-Ensure you are running Python 3.8+ before setting up the dependencies. It's highly recommended to use a virtual environment or `conda` environment.
-Hardware requirements: GPU (Nvidia RTX series recommended) for accelerated training. The model will run on CPU, but training will take significantly longer.
+### Requirements
 
-### 2. Environment Setup
+- Python 3.10+
+- GPU strongly recommended (paper uses NVIDIA GeForce RTX 4090). The model will run on CPU but training will be significantly slower.
 
-Clone this repository and open your terminal. From the root of this project:
+### Environment Setup
+
+Clone this repository and set up a virtual environment:
 
 ```bash
-# Create a virtual environment
+git clone https://github.com/yourusername/gld2-gnn.git
+cd gld2-gnn
+
+# Create and activate a virtual environment
 python -m venv venv
 
-# Activate the environment
-# -> On Windows:
+# On Windows:
 venv\Scripts\activate
-# -> On Linux / macOS:
+
+# On Linux / macOS:
 source venv/bin/activate
 
-# Install the required dependencies
+# Install dependencies
 pip install -r requirements.txt
 ```
 
+For GPU support (CUDA 12.x):
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+pip install scikit-learn scipy numpy requests
+```
+
+For CPU only:
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+pip install scikit-learn scipy numpy requests
+```
+
 ---
 
-## 💾 Dataset Preparation
+## 💾 Dataset Setup
 
-This project uses the **PhysioNet Gait in Parkinson's Disease (gaitpdb)** dataset. The dataset includes 3 independent sub-datasets (`Ga`, `Ju`, `Si`) containing VGRF records.
+This project uses the **PhysioNet Gait in Parkinson's Disease (gaitpdb)** database, which contains VGRF recordings from 3 independent study groups.
 
-> **Important**: This dataset is credentialed. To download it, you must register on [PhysioNet](https://physionet.org), agree to their terms, and sign the Data Use Agreement for this specific dataset here:
-> [Gait in Parkinson's Disease Dataset](https://physionet.org/content/gaitpdb/1.0.0/)
+### Step 1 — Create a PhysioNet account
 
-Once access is granted, open `data_download_script.py` and input your PhysioNet `USERNAME` and `PASSWORD`:
+Register for a free account at [https://physionet.org](https://physionet.org).
+
+### Step 2 — Sign the data use agreement
+
+Visit the dataset page:
+[https://physionet.org/content/gaitpdb/1.0.0/](https://physionet.org/content/gaitpdb/1.0.0/)
+
+Scroll to the bottom and click **"Sign the data use agreement"** while logged in. This step is required — the download will fail without it.
+
+### Step 3 — Download the data
+
+Open `download_data.py` and set your credentials:
+
 ```python
-USERNAME = "your_username"
-PASSWORD = "your_password"
+USERNAME = "your_physionet_username"
+PASSWORD = "your_physionet_password"
 ```
 
-Next, run the downloader script. This will automatically authenticate, retrieve the necessary text files, and sort them into the correct folder structures required by the model.
+Then run:
 
 ```bash
-python data_download_script.py
+python download_data.py
 ```
-After successful execution, your data must reside inside a top-level `data/` directory like so:
+
+This authenticates with PhysioNet, retrieves all `.txt` files, and sorts them into the correct local folder structure:
+
 ```
 data/
- ├── Ga/
- │    └── GaCo01_01.txt, GaPt03_01.txt, etc.
- ├── Ju/
- │    └── JuCo01_01.txt, JuPt01_01.txt, etc.
- └── Si/
-      └── SiCo01_01.txt, SiPt02_01.txt, etc.
+  Ga/   GaCo01_01.txt, GaPd01_01.txt, ...   (113 files)
+  Ju/   JuCo01_01.txt, JuPd01_01.txt, ...   (129 files)
+  Si/   SiCo01_01.txt, SiPd01_01.txt, ...   ( 64 files)
 ```
+
+### Dataset summary
+
+| Dataset | PD subjects | CO subjects | Total records |
+|---------|-------------|-------------|---------------|
+| Ga      | 29          | 18          | 113           |
+| Ju      | 29          | 25          | 129           |
+| Si      | 35          | 29          | 64            |
+| **Total** | **93**    | **72**      | **306**       |
+
+Each recording is approximately 2 minutes of walking at comfortable speed, collected with 8 pressure sensors per foot (16 total).
 
 ---
 
-## 🚀 Training & Evaluation Pipeline
+## 🚀 Running Experiments
 
-The training framework `train.py` supports two separate evaluation methods natively described in the paper: **Cross-Dataset Validation** and **K-Fold Mixed-Data Cross-Validation**. The framework will automatically handle data loading, segmentation, fixed-length interpolation (via cubic splines), building the motion graph streams, and data augmentations (permutation and window slicing).
+### Sanity-check individual modules
 
-### 1. Cross-Dataset Validation
-Train the model on independent specific subsets, and test on the remaining unseen subset.
+Run each file directly to verify everything is working before training:
 
-**Example**: Train on `Ga` and `Ju`, Test on `Si`.
 ```bash
-python train.py --data_root ./data --mode cross --train_sets Ga Ju --test_set Si --batch_size 64 --epochs 120 --amp
-```
-*(Optionally include the `--amp` flag to enable mixed precision training for RTX hardware).*
-
-### 2. K-Fold Cross Validation
-Train using an $N$-Fold cross-validation split merging all 3 subsets (`Ga`, `Ju`, `Si`). 
-
-**Example**: 5-Fold stratified cross-validation on all merged data.
-```bash
-python train.py --data_root ./data --mode kfold --k_folds 5 --batch_size 64 --epochs 120 --amp
+python graph_construction.py   # verifies 16 nodes, 26 edges, S/D matrices
+python data_loader.py          # verifies loading, segmentation, augmentation
+python dgl_unit.py             # verifies 5-branch adjacency learning
+python dydgn_unit.py           # verifies node+edge feature aggregation
+python tcn_unit.py             # verifies temporal conv shapes + receptive field
+python model.py                # verifies full forward pass + parameter count
 ```
 
-### Full Configuration Reference
-Check out the CLI args to configure sequence length, epochs, batches, and patience:
+All should print `All assertions passed.`
 
-| Argument | Type | Default | Description |
-|---|---|---|---|
-| `--mode` | string | `cross` | Defines CV method: `cross` or `kfold` |
-| `--data_root` | string | `./data` | Directory containing the PhysioNet dataset folders |
-| `--train_sets` | list | `Ga Ju` | Target datasets for training (Cross Mode) |
-| `--test_set`| string | `Si` | Target dataset for validation (Cross Mode) |
-| `--k_folds` | int | `5` | Total data splits to evaluate (KFold Mode) |
-| `--epochs` | int | `120` | Max number of epochs to run per fold/repeat |
-| `--T` | int | `128` | Gait-cycle sequence duration to construct |
-| `--batch_size` | int | `64` | Target DataLoader Mini-batch configuration |
-| `--amp` | flag | N/A | Enable pytorch automatic mixed-precision training |
-| `--no_cuda` | flag | N/A | Explicitly specify CPU-only training computation |
+### Cross-dataset validation (Table IV)
+
+Train on two datasets, test on the held-out third. Each experiment is repeated 4 times and averaged.
+
+**Ga + Ju → Si:**
+```bash
+python train.py --mode cross --train_sets Ga Ju --test_set Si \
+                --data_root ./data --epochs 120 --batch_size 64
+```
+
+**Ga + Si → Ju:**
+```bash
+python train.py --mode cross --train_sets Ga Si --test_set Ju \
+                --data_root ./data --epochs 120 --batch_size 64
+```
+
+**Si + Ju → Ga:**
+```bash
+python train.py --mode cross --train_sets Si Ju --test_set Ga \
+                --data_root ./data --epochs 120 --batch_size 64
+```
+
+### Mixed-data k-fold cross-validation (Table V)
+
+Merges all three datasets and evaluates with stratified k-fold splitting.
+
+**5-fold:**
+```bash
+python train.py --mode kfold --k_folds 5 \
+                --data_root ./data --epochs 120 --batch_size 64
+```
+
+**10-fold:**
+```bash
+python train.py --mode kfold --k_folds 10 \
+                --data_root ./data --epochs 120 --batch_size 64
+```
+
+### Enable mixed-precision (faster on RTX GPUs)
+
+Add `--amp` to any command:
+```bash
+python train.py --mode cross --train_sets Ga Ju --test_set Si \
+                --data_root ./data --epochs 120 --batch_size 64 --amp
+```
+
+### Full CLI reference
+
+| Argument         | Default         | Description                                        |
+|------------------|-----------------|----------------------------------------------------|
+| `--mode`         | `cross`         | `cross` = cross-dataset, `kfold` = k-fold CV       |
+| `--data_root`    | `./data`        | Path to the downloaded dataset directory           |
+| `--train_sets`   | `Ga Ju`         | Datasets for training (cross mode only)            |
+| `--test_set`     | `Si`            | Dataset for testing (cross mode only)              |
+| `--k_folds`      | `5`             | Number of folds (kfold mode only)                  |
+| `--T`            | `128`           | Gait-cycle length — must be divisible by 8         |
+| `--aug_factor`   | `10`            | Augmentation multiplier (training data only)       |
+| `--epochs`       | `120`           | Maximum training epochs per repeat/fold            |
+| `--batch_size`   | `64`            | Mini-batch size                                    |
+| `--lr`           | `5e-4`          | Initial learning rate                              |
+| `--weight_decay` | `5e-4`          | Adam weight decay                                  |
+| `--patience`     | `30`            | Early stopping patience (epochs)                   |
+| `--repeats`      | `4`             | Repetitions per cross-dataset experiment           |
+| `--seed`         | `42`            | Base random seed                                   |
+| `--amp`          | off             | Enable mixed-precision training (RTX GPUs)         |
+| `--no_cuda`      | off             | Force CPU-only training                            |
+| `--save_dir`     | `./checkpoints` | Output directory for checkpoints and result JSON   |
 
 ---
 
-## 📊 Results Summary
+## 📊 Reproducing Paper Results
 
-The architecture evaluates with accuracy, F1 score and Geometric Mean metrics.
-Upon running training, checkpoints mapped by run configuration will be saved out automatically via validation loss monitoring. Output JSON metadata reports featuring performance arrays across metrics will be packaged into the default `./checkpoints` directory, to safely extract graphs and comparative benchmarks over repetitions.
+The following settings exactly match Section IV-A-2 of the paper:
 
-## 🤝 Credits & Acknowledgements
-This is an unofficial implementation of the GLD²-GNN method for Parkinson's Disease detection using VGRF signals. Please refer to and cite the original literature and authors if utilizing this architecture in your own extended research. The framework extensively relies on PyTorch and standard implementations of TCN and GNN units.
+| Hyperparameter | Value |
+|----------------|-------|
+| Optimiser | Adam, β₁=0.9, β₂=0.995 |
+| Weight decay | 5e-4 |
+| Learning rate | 5e-4 (initial) |
+| LR scheduler | CosineAnnealingLR, T\_max=14, η\_min=1e-5 |
+| Loss | Binary cross-entropy |
+| Batch size | 64 |
+| Max epochs | 120 |
+| Early stopping patience | 30 |
+| Validation split | 20% of training set |
+| Cross-dataset repeats | 4 |
 
-Data is provided by PhysioNet (gaitpdb dataset). All dataset terms of use apply to downstream consumers.
+All of these are the defaults in `train.py` — the commands in the section above will use the correct settings without any extra flags.
+
+Results are saved automatically to `./checkpoints/` as JSON files after each run:
+
+```
+checkpoints/
+  cross_GaJu_Si.json       ← Ga+Ju → Si results (4 repeats)
+  cross_GaSi_Ju.json       ← Ga+Si → Ju results (4 repeats)
+  cross_SiJu_Ga.json       ← Si+Ju → Ga results (4 repeats)
+  kfold5_results.json      ← 5-fold CV results
+  kfold10_results.json     ← 10-fold CV results
+```
+
+> **Note on variance:** The paper does not specify fixed random seeds for each repeat, so exact numerical reproduction may vary slightly. Mean ± std across 4 repeats should fall within the paper's reported standard deviations.
+
+---
+
+## 🤝 Credits & Citation
+
+### Original Paper
+
+This repository is an independent, ground-up implementation of:
+
+```bibtex
+@article{wang2025gld2gnn,
+  author    = {Wang, Xiaotian and Zhou, Guanhai and Zhao, Zhifu and
+               Zhang, Xiaoyi and Li, Fu and Qi, Fei},
+  title     = {A Global-Local Dynamic Directed Graph Neural Network
+               for Parkinson's Disease Detection},
+  journal   = {IEEE Transactions on Neural Systems and Rehabilitation Engineering},
+  volume    = {33},
+  pages     = {3947--3957},
+  year      = {2025},
+  doi       = {10.1109/TNSRE.2025.3614430},
+  publisher = {IEEE}
+}
+```
+
+If you use this implementation in your own research, please cite the original paper above.
+
+### Dataset
+
+```bibtex
+@misc{physionet_gaitpdb,
+  author = {Goldberger, Ary L. and others},
+  title  = {Gait in Parkinson's Disease},
+  year   = {2000},
+  url    = {https://physionet.org/content/gaitpdb/1.0.0/},
+  note   = {PhysioNet. Version 1.0.0}
+}
+```
+
+Original dataset studies:
+- **Ga:** Yogev et al., *"Dual tasking, gait rhythmicity, and Parkinson's disease"*, European Journal of Neuroscience, 2005.
+- **Ju:** Hausdorff et al., *"Rhythmic auditory stimulation modulates gait variability in Parkinson's disease"*, European Journal of Neuroscience, 2007.
+- **Si:** Frenkel-Toledo et al., *"Treadmill walking as an external pacemaker to improve gait rhythm and stability in Parkinson's disease"*, Movement Disorders, 2005.
+
+### Framework & Libraries
+
+This implementation is built on:
+- [PyTorch](https://pytorch.org/) — model training and tensor operations
+- [scikit-learn](https://scikit-learn.org/) — k-fold splitting and metrics
+- [SciPy](https://scipy.org/) — cubic spline interpolation for gait resampling
+- [PhysioNet](https://physionet.org/) — dataset hosting and access
+
+---
+
+## ⚠️ Disclaimer
+
+This is an **unofficial implementation** developed for academic coursework and research purposes only.
+
+- This repository is **not affiliated with** the original authors, Xidian University, or IEEE.
+- Some architectural details not fully specified in the paper required reasonable design choices — these are documented in the source files.
+- This code is **not intended for clinical use**. Parkinson's disease diagnosis must only be performed by qualified medical professionals.
+- The PhysioNet dataset requires signing a data use agreement — ensure you comply with all dataset terms before downloading or using the data.
