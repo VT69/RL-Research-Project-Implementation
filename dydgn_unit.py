@@ -362,21 +362,39 @@ if __name__ == "__main__":
     print("dydgn_unit.py sanity check")
     print("=" * 55)
 
-    # Build dynamic adjacency matrices
-    dgl      = DGLUnit(C_in=C_in, T=T, s=s, NV=NV)
-    adj_list = dgl(node_data, A_static)
+    # ------------------------------------------------------------------
+    # Build dynamic adjacency matrices via DGL unit.
+    # Current API: DGLUnit(c_in, t_slot, s); forward(node_data) → list[Tensor]
+    # ------------------------------------------------------------------
+    t_slot   = T // s
+    dgl      = DGLUnit(c_in=C_in, t_slot=t_slot, s=s)
+    adj_list = dgl(node_data)   # list of s tensors [NV, NV]
 
-    # Build dynamic edge features
-    edge_gen = EdgeGenerationUnit(NV=NV)
-    S_dy_list, D_dy_list, E_dy_list = edge_gen(adj_list, node_data)
+    print(f"  DGL unit produced {len(adj_list)} adjacency matrices")
+    for i, A in enumerate(adj_list):
+        nnz = (A > 0).sum().item()
+        print(f"  Slot {i}: shape={A.shape}  non-zero={nnz}")
+
+    # ------------------------------------------------------------------
+    # Build dynamic edge features via EdgeGenerationUnit.
+    # API: EdgeGenerationUnit(max_dynamic_edges=NE)
+    # forward(node_data, adj_matrices) → (dy_edges_list, S_dy_list, D_dy_list)
+    # ------------------------------------------------------------------
+    edge_gen                            = EdgeGenerationUnit(max_dynamic_edges=NE)
+    dy_edges_list, S_dy_list, D_dy_list = edge_gen(node_data, adj_list)
 
     for i in range(s):
         print(f"  Slot {i}: NE_dy={S_dy_list[i].shape[1]}  "
-              f"E_dy={E_dy_list[i].shape}")
+              f"E_dy={dy_edges_list[i].shape}")
 
-    # Run DyDGN unit
+    # ------------------------------------------------------------------
+    # Run DyDGN unit.
+    # forward(V, E, S_dy_list, D_dy_list, E_dy_list)
+    # ------------------------------------------------------------------
     dydgn = DyDGNUnit(C_in=C_in, C_out=C_out, NV=NV, NE=NE, s=s)
-    V_out, E_out = dydgn(node_data, edge_data, S_dy_list, D_dy_list, E_dy_list)
+    V_out, E_out = dydgn(
+        node_data, edge_data, S_dy_list, D_dy_list, dy_edges_list
+    )
 
     print(f"\n  DyDGNUnit output:")
     print(f"    V_out : {V_out.shape}  (expected [4, 32, 128, 16])")

@@ -222,9 +222,17 @@ class DGLUnit(nn.Module):
     """
 
     def __init__(self, c_in: int, t_slot: int, s: int):
+        # _last_adj caches the adjacency list from the most recent forward pass,
+        # allowing RegularisedStreamEncoder to collect adjacencies for the
+        # sparsity loss without needing to invoke DGLUnit a second time.
         super().__init__()
-        self.s      = s
-        self.t_slot = t_slot
+        self.s         = s
+        self.t_slot    = t_slot
+        # _last_adj: adjacency list from the most recent forward() call.
+        # Overwritten on EVERY forward pass, so always reflects the current input.
+        # Read by RegularisedStreamEncoder to collect adjacencies for sparsity loss
+        # without invoking DGLUnit a second time (zero overhead).
+        self._last_adj: list = []
 
         # Five branches
         self.branch1 = GlobalBranch(c_in, t_slot)
@@ -310,6 +318,8 @@ class DGLUnit(nn.Module):
             A_dy = self._postprocess(A_fused)
             adj_matrices.append(A_dy)
 
+        # Cache result so callers can read it without a second forward pass.
+        self._last_adj = adj_matrices
         return adj_matrices   # list of s tensors [NV, NV]
 
 

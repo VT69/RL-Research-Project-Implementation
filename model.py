@@ -452,11 +452,12 @@ if __name__ == "__main__":
     print(f"  After  step(): S_hat_param trainable = "
           f"{model.time_encoder.blocks[0].dydgn.S_hat_param.requires_grad}")
 
-    # DyDGNN block-by-block shape trace
+    # DyDGNN block-by-block shape trace (time stream)
     print(f"\n  Block-by-block shape trace (time stream):")
     V = ts_nodes.clone()
     E = ts_edges.clone()
-    A = model.A_static
+    # Note: DyDGNNBlock.forward(V, E) uses the static graph held internally
+    # by DGLUnit as a registered buffer — no need to pass A_static explicitly.
     for i, block in enumerate(model.time_encoder.blocks):
         V, E = block(V, E)
         cfg  = StreamEncoder.BLOCK_CONFIGS[i]

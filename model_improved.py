@@ -190,6 +190,7 @@ class RegularisedStreamEncoder(nn.Module):
         self.last_adj_list: list = []
 
     def step(self):
+        """Advance the adaptive-matrix warm-up counter for all blocks."""
         for block in self.blocks:
             block.step()
 
@@ -200,20 +201,28 @@ class RegularisedStreamEncoder(nn.Module):
         A_static: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor, list]:
         """
+        Args:
+            V        : node features  [B, 1, T, NV]
+            E        : edge features  [B, 1, T, NE]
+            A_static : static adjacency — passed through to DyDGNNBlock
+                       (DyDGNNBlock does NOT use it directly, kept for
+                        interface consistency with the caller in GLD2GNNPlus)
+
         Returns:
             prob     : [B, 1]   prediction probability
             feat     : [B, 128] pooled feature vector
-            adj_list : list of all dynamic adjacency tensors (for sparsity loss)
+            adj_list : list of all dynamic adjacency tensors collected from
+                       every DGL unit across all 4 blocks (for sparsity loss)
         """
         self.last_adj_list = []
 
         for block in self.blocks:
-            # Intercept adjacency matrices from DGL unit
-            adj = block.dgl(V, A_static)
-            self.last_adj_list.extend(adj)
-
-            # Now run the full block (DGL runs again internally — small overhead)
-            V, E = block(V, E, A_static)
+            # block.forward(V, E) runs: DGLUnit → EdgeGen → DyDGN → TCN.
+            # DGLUnit caches its output in block.dgl._last_adj during that call,
+            # so we can read the adjacency matrices here without a second DGL pass.
+            V, E = block(V, E)
+            if hasattr(block.dgl, "_last_adj") and block.dgl._last_adj is not None:
+                self.last_adj_list.extend(block.dgl._last_adj)
 
         V_feat = self.node_pool(V).flatten(1)
         E_feat = self.edge_pool(E).flatten(1)
@@ -297,10 +306,18 @@ class GLD2GNNPlus(nn.Module):
     def _sparsity_loss(self, adj_list: list) -> torch.Tensor:
         """
         GAP 3: L1 sparsity penalty on all learned dynamic adjacency matrices.
-        Encourages the model to use fewer, more meaningful edges.
+        Sums |A_dyn| across all entries, averaged over the number of matrices.
+
+        Returns a scalar tensor on the same device as the adjacency matrices,
+        so it can be directly added to the BCE loss without device errors.
+        If adj_list is empty (e.g. during a dry-run), returns 0.0 with grad.
         """
         if not adj_list:
-            return torch.tensor(0.0, requires_grad=True)
+            # Device-safe zero: use the fusion weight as an anchor so the
+            # tensor lives on the right device and participates in the graph.
+            return self.sparsity_lambda * torch.zeros(
+                1, device=next(self.parameters()).device
+            ).requires_grad_(True).squeeze()
         total = sum(A.abs().mean() for A in adj_list)
         return self.sparsity_lambda * total / len(adj_list)
 

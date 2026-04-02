@@ -74,19 +74,39 @@ DATASETS = ["Ga", "Ju", "Si"]
 
 def _label_from_filename(fname: str) -> int:
     """
-    Infers class label from filename.
-    PD patient  → 1  (positive class, as in paper Section IV-A-2)
-    Healthy CO  → 0
+    Infers class label from a PhysioNet gaitpdb filename.
+
+    PhysioNet naming convention (case-insensitive):
+        <Dataset>Pt<ID>_<trial>.txt  →  PD patient   → label 1
+        <Dataset>Co<ID>_<trial>.txt  →  Healthy ctrl  → label 0
+
+    Examples::
+        GaPt03_01  → 1  (Ga dataset, PD patient 03, trial 01)
+        GaCo01_01  → 0  (Ga dataset, healthy control 01, trial 01)
+        JuPt12_02  → 1
+        SiCo05_01  → 0
+
+    Args:
+        fname: filename stem (no extension)
+
+    Returns:
+        0 for healthy control, 1 for PD patient
+
+    Raises:
+        ValueError if the filename does not match the expected pattern.
     """
-    lower = fname.lower()
-    # PhysioNet gaitpdb filenames use 'Pt' for PD Patient and 'Co' for Control
-    # e.g. GaPt03_01.txt (PD) vs GaCo01_01.txt (healthy control)
-    if "pt" in lower:
+    # Use regex anchored to the dataset prefix to avoid false positives.
+    # Pattern: optional dataset prefix (Ga/Ju/Si), then Pt or Co, then digits.
+    if re.search(r"(?:ga|ju|si)?pt\d", fname, re.IGNORECASE):
         return 1
-    elif "co" in lower:
+    elif re.search(r"(?:ga|ju|si)?co\d", fname, re.IGNORECASE):
         return 0
     else:
-        raise ValueError(f"Cannot infer label from filename: {fname}")
+        raise ValueError(
+            f"Cannot infer label from filename '{fname}'. "
+            "Expected PhysioNet gaitpdb pattern: <Dataset>Pt<ID>_<trial> "
+            "or <Dataset>Co<ID>_<trial>  (e.g. GaPt03_01 or SiCo05_01)."
+        )
 
 
 def load_raw_records(data_root: str, dataset_name: str) -> List[Dict]:
@@ -278,13 +298,30 @@ class LazyAugmentedSample:
         self.mode = mode
 
     def get(self, T: int) -> np.ndarray:
-        if self.mode == 0:
+        """
+        Applies the stored augmentation mode to base_cycle.
+
+        Modes
+        -----
+        -1 : no augmentation — return original cycle as-is
+         0 : window-slice only
+         1 : permutation only
+         2 : permutation + window-slice (combined)
+        """
+        if self.mode == -1:
+            # Original, unaugmented sample
+            return self.base_cycle
+        elif self.mode == 0:
             return window_slice(self.base_cycle, T)
         elif self.mode == 1:
             return permutation_augment(self.base_cycle)
         elif self.mode == 2:
             return permutation_augment(window_slice(self.base_cycle, T))
-        return self.base_cycle
+        else:
+            raise ValueError(
+                f"LazyAugmentedSample: unknown augmentation mode {self.mode!r}. "
+                "Expected -1 (none), 0 (window-slice), 1 (permutation), or 2 (both)."
+            )
 
 
 def augment_samples(

@@ -211,7 +211,7 @@ class TCNUnit(nn.Module):
         self,
         V: torch.Tensor,    # [B, C_in, T, NV]
         E: torch.Tensor,    # [B, C_in, T, NE]
-    ) -> tuple:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Args:
             V: node features  [B, C_in, T, NV]

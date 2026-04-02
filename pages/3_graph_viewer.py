@@ -192,11 +192,12 @@ else:
 node_data = torch.from_numpy(cycle).unsqueeze(0).unsqueeze(0)  # [1,1,T,16]
 A_static_t = gc["A"]
 
-dgl_unit = DGLUnit(C_in=1, T=T, s=s, NV=16, topk=6)
+t_slot_size = T // s
+dgl_unit = DGLUnit(c_in=1, t_slot=t_slot_size, s=s)
 dgl_unit.eval()
 
 with torch.no_grad():
-    adj_list = dgl_unit(node_data, A_static_t)   # list of s tensors [16,16]
+    adj_list = dgl_unit(node_data)   # list of s tensors [16,16]
 
 adj_arrays  = [A.numpy() for A in adj_list]
 T_slot      = T // s

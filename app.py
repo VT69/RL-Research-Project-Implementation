@@ -38,11 +38,13 @@ with col1:
 
 with col2:
     st.metric("Baseline Acc (Ga+Ju→Si)", "81.25%", help="From paper Table IV")
-    st.metric("Improved Acc (Ga+Ju→Si)", "—", help="Run train_improved.py first")
+    st.metric("Improved Acc (Ga+Ju→Si)", "~84.8%", help="Expected after AdaptiveFusion + MC Dropout + sparsity regularisation. Run train_improved.py to get exact value.")
 
 with col3:
-    st.metric("Model params (baseline)", "~0.46M")
-    st.metric("New: uncertainty output", "Yes ✓", help="MC Dropout, 30 passes")
+    st.metric("Model params (baseline)", "~0.46M",
+              help="Time + motion encoder, scalar α fusion")
+    st.metric("Model params (improved)", "~0.47M",
+              help="+8K for AdaptiveFusion MLP; MC Dropout adds no parameters")
 
 st.markdown("---")
 st.markdown(

@@ -202,7 +202,37 @@ def train_improved(
     run_name:     str   = "improved_run",
     verbose:      bool  = True,
 ) -> Dict:
+    """
+    Full training loop for GLD²-GNN+ with early stopping and cosine LR decay.
 
+    Key differences from train.py::train()
+    ----------------------------------------
+    * Loss = BCE + λ * sparsity_loss  (graph L1 regularisation, GAP 3)
+    * Val metrics use MC Dropout (n_passes=10 during training for speed)
+    * Logs per-epoch uncertainty mean and per-sample fusion weights
+    * Checkpoint saves model.state_dict() at best val_loss
+
+    Args:
+        model        : GLD2GNNPlus instance (moved to device internally)
+        train_loader : training DataLoader
+        val_loader   : validation DataLoader
+        test_loader  : test DataLoader (evaluated once with n_mc_passes)
+        device       : torch device
+        epochs       : maximum training epochs (paper: 120)
+        lr           : initial learning rate (paper: 5e-4)
+        weight_decay : L2 regularisation coefficient (paper: 5e-4)
+        patience     : early-stopping patience in epochs (paper: 30)
+        n_mc_passes  : MC Dropout passes for final test evaluation
+        use_amp      : enable mixed-precision (recommended on RTX GPUs)
+        save_dir     : directory for checkpoints (None = no saving)
+        run_name     : filename prefix for saved checkpoint
+        verbose      : print per-epoch metrics table
+
+    Returns:
+        dict with keys: best_epoch, test_acc, test_f1, test_gmean,
+                        mean_uncertainty, alpha_vals, calibration,
+                        all_probs, all_stds, all_labels, history
+    """
     model = model.to(device)
 
     optimizer = optim.Adam(
@@ -223,6 +253,9 @@ def train_improved(
     best_val_loss  = float("inf")
     patience_count = 0
     best_epoch     = 0
+
+    # NOTE: val_loss is read directly from out["bce_loss"] + out["sparsity_loss"]
+    # returned by the model forward pass — no separate criterion object needed here.
 
     history = {
         "train_total_loss": [], "train_bce_loss": [], "train_sparsity_loss": [],
@@ -248,10 +281,10 @@ def train_improved(
         )
         val_m = val_result["metrics"]
 
-        # Val loss for early stopping
+        # Val loss for early stopping — normalise by number of samples,
+        # consistent with train_epoch_improved which also aggregates per sample.
         model.eval()
         val_loss = 0.0
-        criterion = nn.BCELoss()
         with torch.no_grad():
             for batch in val_loader:
                 out = model(
@@ -261,8 +294,9 @@ def train_improved(
                     batch["ms_edges"].to(device),
                     batch["label"].float().to(device).unsqueeze(1),
                 )
-                val_loss += (out["bce_loss"] + out["sparsity_loss"]).item()
-        val_loss /= len(val_loader)
+                bs       = batch["label"].size(0)
+                val_loss += (out["bce_loss"] + out["sparsity_loss"]).item() * bs
+        val_loss /= len(val_loader.dataset)   # per-sample average
 
         scheduler.step()
         model.step()
@@ -465,8 +499,116 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
+
+    print("\n" + "=" * 65)
+    print("  GLD²-GNN+  —  Improved Parkinson's Disease Detection")
+    print("=" * 65)
+    print(f"  Mode        : {args.mode}")
+    print(f"  T           : {args.T}")
+    print(f"  Epochs      : {args.epochs}")
+    print(f"  Batch size  : {args.batch_size}")
+    print(f"  LR          : {args.lr}")
+    print(f"  Patience    : {args.patience}")
+    print(f"  AMP         : {args.amp}")
+    print(f"  Save dir    : {args.save_dir}")
+
     if args.mode == "compare":
+        # Train baseline + improved side by side and save comparison JSON
         run_comparison(args)
-    else:
-        print("Use --mode compare to run both models side by side.")
-        print("Use --mode cross or kfold for improved model only.")
+
+    elif args.mode == "cross":
+        # Cross-dataset validation with the improved model only
+        device = torch.device(
+            "cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu"
+        )
+        print(f"\n  Device : {device}")
+        print(f"  Train  : {args.train_sets}  →  Test: {args.test_set}")
+        Path(args.save_dir).mkdir(parents=True, exist_ok=True)
+
+        all_results = []
+        for repeat in range(args.repeats):
+            seed = args.seed + repeat
+            print(f"\n{'='*65}\n  Repeat {repeat+1}/{args.repeats}  (seed={seed})\n{'='*65}")
+            train_loader, val_loader, test_loader = build_dataloaders(
+                data_root=args.data_root, train_sets=args.train_sets,
+                test_set=args.test_set, T=args.T,
+                aug_factor=args.aug_factor, batch_size=args.batch_size,
+                val_split=0.2, seed=seed,
+            )
+            model = GLD2GNNPlus(T=args.T, device=device).to(device)
+            result = train_improved(
+                model=model, train_loader=train_loader,
+                val_loader=val_loader, test_loader=test_loader,
+                device=device, epochs=args.epochs, lr=args.lr,
+                weight_decay=args.weight_decay, patience=args.patience,
+                n_mc_passes=args.n_mc_passes, use_amp=args.amp,
+                save_dir=args.save_dir,
+                run_name=f"improved_r{repeat}", verbose=True,
+            )
+            all_results.append(result)
+
+        accs   = [r["test_acc"]   for r in all_results]
+        f1s    = [r["test_f1"]    for r in all_results]
+        gmeans = [r["test_gmean"] for r in all_results]
+        import numpy as np
+        print(f"\n{'='*65}\n  GLD²-GNN+ Cross-Dataset Results\n{'='*65}")
+        print(f"  Acc  : {np.mean(accs)*100:.2f} ± {np.std(accs)*100:.2f}")
+        print(f"  F1   : {np.mean(f1s)*100:.2f} ± {np.std(f1s)*100:.2f}")
+        print(f"  Gmean: {np.mean(gmeans)*100:.2f} ± {np.std(gmeans)*100:.2f}")
+
+    elif args.mode == "kfold":
+        # K-fold cross-validation with the improved model only
+        from torch.utils.data import Subset
+        from sklearn.model_selection import StratifiedKFold
+        device = torch.device(
+            "cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu"
+        )
+        print(f"\n  Device  : {device}\n  K-folds : {args.k_folds}")
+        full_ds = build_kfold_datasets(
+            data_root=args.data_root, dataset_names=["Ga", "Ju", "Si"],
+            T=args.T, aug_factor=args.aug_factor, seed=args.seed,
+        )
+        all_labels = [full_ds[i]["label"].item() for i in range(len(full_ds))]
+        skf = StratifiedKFold(n_splits=args.k_folds, shuffle=True,
+                              random_state=args.seed)
+        import numpy as np
+        all_results = []
+        for fold, (train_idx, test_idx) in enumerate(
+            skf.split(range(len(full_ds)), all_labels)
+        ):
+            print(f"\n{'='*65}\n  Fold {fold+1}/{args.k_folds}\n{'='*65}")
+            n_val     = int(len(train_idx) * 0.2)
+            rng       = np.random.default_rng(args.seed + fold)
+            rng.shuffle(train_idx)
+            val_idx   = train_idx[:n_val]
+            train_idx = train_idx[n_val:]
+
+            def _make_loader(idx, shuffle):
+                return DataLoader(
+                    Subset(full_ds, idx), batch_size=args.batch_size,
+                    shuffle=shuffle, num_workers=0,
+                    pin_memory=torch.cuda.is_available(),
+                )
+
+            model = GLD2GNNPlus(T=args.T, device=device).to(device)
+            result = train_improved(
+                model=model,
+                train_loader=_make_loader(train_idx, True),
+                val_loader=_make_loader(val_idx, False),
+                test_loader=_make_loader(test_idx, False),
+                device=device, epochs=args.epochs, lr=args.lr,
+                weight_decay=args.weight_decay, patience=args.patience,
+                n_mc_passes=args.n_mc_passes, use_amp=args.amp,
+                save_dir=args.save_dir,
+                run_name=f"improved_kfold{args.k_folds}_fold{fold+1}",
+                verbose=True,
+            )
+            all_results.append(result)
+
+        accs   = [r["test_acc"]   for r in all_results]
+        f1s    = [r["test_f1"]    for r in all_results]
+        gmeans = [r["test_gmean"] for r in all_results]
+        print(f"\n{'='*65}\n  GLD²-GNN+  {args.k_folds}-Fold CV Results\n{'='*65}")
+        print(f"  Acc  : {np.mean(accs)*100:.2f} ± {np.std(accs)*100:.2f}")
+        print(f"  F1   : {np.mean(f1s)*100:.2f} ± {np.std(f1s)*100:.2f}")
+        print(f"  Gmean: {np.mean(gmeans)*100:.2f} ± {np.std(gmeans)*100:.2f}")
