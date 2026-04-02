@@ -170,7 +170,7 @@ if uploaded is not None:
         height=350,
         margin=dict(t=20),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig)
 
     # ── MC Dropout distribution for first cycle ──────────────────────────────
     st.subheader("MC Dropout pass distribution (first cycle)")

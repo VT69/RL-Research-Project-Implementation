@@ -243,4 +243,4 @@ if has_results and "raw_improved" in data and data["raw_improved"]:
 
         fig5.update_layout(height=320, margin=dict(t=40),
                            legend=dict(orientation="h", y=-0.2))
-        st.plotly_chart(fig5, use_container_width=True)
+        st.plotly_chart(fig5)

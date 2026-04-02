@@ -60,7 +60,7 @@ class AdaptiveFusion(nn.Module):
     st.success(
         "Each patient gets their own fusion weight, computed from their "
         "own gait features. The model learns when to trust each stream.",
-        icon="✓",
+        icon="✅",
     )
 
 st.markdown("---")
@@ -110,7 +110,7 @@ def predict_with_uncertainty(self, ..., n_passes=30):
     st.success(
         "Every prediction now comes with a confidence score. "
         "High std → model is uncertain → flag for clinical review.",
-        icon="✓",
+        icon="✅",
     )
 
 st.markdown("---")
@@ -160,7 +160,7 @@ loss = bce_loss + sparsity_loss
     st.success(
         "Sparser graphs generalise better on small datasets and "
         "produce cleaner visualisations of which pressure paths matter.",
-        icon="✓",
+        icon="✅",
     )
 
 st.markdown("---")

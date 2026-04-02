@@ -83,6 +83,7 @@ Stream     Stream
 This repository extends the original paper with **GLD²-GNN+**, introducing targeted enhancements to address key research gaps:
 1. **Adaptive Fusion**: Replaces the fixed scalar $\alpha$ fusion with an adaptive, sample-wise fusion network that dynamically weights the time and motion streams per patient and gait phase.
 2. **Uncertainty Estimation**: Incorporates Monte Carlo Dropout to provide a confidence measure alongside predictions, assisting in clinical interpretation for borderline cases.
+3. **Sparsity Regularisation**: Adds an L1 penalty to the dynamic adjacency matrices, encouraging the model to learn sparser, more interpretable pressure-transmission graphs that generalize better.
 
 ### Interactive Dashboard
 

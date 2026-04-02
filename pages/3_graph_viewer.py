@@ -227,7 +227,7 @@ for k, tab in enumerate(tabs):
             node_vals = mean_pressure,
             title    = f"{phase_labels[k]} — learned graph snapshot",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig)
 
         # Stats for this slot
         nnz  = int((adj_arrays[k] > 0.01).sum())
