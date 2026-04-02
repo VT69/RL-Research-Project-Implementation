@@ -144,10 +144,11 @@ gld2_gnn/
 ├── download_data.py        # PhysioNet dataset downloader
 │
 ├── app.py                  # Streamlit dashboard entry point
-├── 1_gap_analysis.py       # Dashboard page: Gap Analysis
-├── 2_live_inference.py     # Dashboard page: Live Inference
-├── 3_graph_viewer.py       # Dashboard page: Dynamic Graph Viewer
-├── 4_results.py            # Dashboard page: Results Comparison
+├── pages/                  # Streamlit dashboard pages
+│   ├── 1_gap_analysis.py   # Gap Analysis
+│   ├── 2_live_inference.py # Live Inference
+│   ├── 3_graph_viewer.py   # Dynamic Graph Viewer
+│   └── 4_results.py        # Results Comparison
 │
 ├── requirements.txt
 ├── .gitignore

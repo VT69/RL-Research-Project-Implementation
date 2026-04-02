@@ -12,7 +12,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 
 # Allow imports from project root
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from data_loader     import segment_gait_cycles, resize_cycle, build_two_streams, build_edge_sequence
 from model_improved  import GLD2GNNPlus

@@ -4,6 +4,9 @@ Shows what the paper does, what's missing, and how we fixed it.
 """
 
 import streamlit as st
+import os
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 st.set_page_config(page_title="Gap Analysis", layout="wide")
 st.title("Research Gap Analysis")

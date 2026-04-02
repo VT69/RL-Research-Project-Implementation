@@ -12,7 +12,7 @@ import torch
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from graph_construction import get_graph_components, NV as NV_CONST, _build_edge_list
 from data_loader        import segment_gait_cycles, resize_cycle
