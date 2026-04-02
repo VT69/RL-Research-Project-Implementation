@@ -12,6 +12,7 @@
 
 - [Overview](#overview)
 - [Architecture](#architecture)
+- [GLD²-GNN+ & Interactive Dashboard](#✨-gld²-gnn--interactive-dashboard)
 - [Results](#results)
 - [Project Structure](#project-structure)
 - [Prerequisites & Installation](#prerequisites--installation)
@@ -77,6 +78,32 @@ Stream     Stream
 
 ---
 
+## ✨ GLD²-GNN+ & Interactive Dashboard
+
+This repository extends the original paper with **GLD²-GNN+**, introducing targeted enhancements to address key research gaps:
+1. **Adaptive Fusion**: Replaces the fixed scalar $\alpha$ fusion with an adaptive, sample-wise fusion network that dynamically weights the time and motion streams per patient and gait phase.
+2. **Uncertainty Estimation**: Incorporates Monte Carlo Dropout to provide a confidence measure alongside predictions, assisting in clinical interpretation for borderline cases.
+
+### Interactive Dashboard
+
+An interactive Streamlit dashboard is provided to explore these improvements, visualize dynamic graphs, and perform live inference.
+
+```bash
+# Train both models for comparison
+python train_improved.py --mode compare --data_root ./data --epochs 120
+
+# Launch the Streamlit dashboard
+streamlit run app.py
+```
+
+**Dashboard Features:**
+- 📖 **Research Gap Analysis**: Side-by-side comparison of the paper's limitations vs. proposed fixes.
+- ⚡ **Live Inference**: Upload raw VGRF `.txt` files to get predictions with uncertainty bounds.
+- 🕸️ **Dynamic Graph Viewer**: Animated visualization of learned adjacency matrices across gait phases.
+- 📊 **Results Comparison**: Direct metric comparisons (Accuracy, F1, G-Mean) between the baseline and GLD²-GNN+.
+
+---
+
 ## Results
 
 Results from the original paper (Tables IV & V) that this implementation targets:
@@ -111,8 +138,16 @@ gld2_gnn/
 ├── dydgn_unit.py           # Dynamic Directed Graph Network unit
 ├── tcn_unit.py             # Temporal Convolutional Network unit
 ├── model.py                # Full GLD²-GNN model + two-stream fusion
+├── model_improved.py       # GLD²-GNN+ with Adaptive Fusion & Uncertainty
 ├── train.py                # Training loop, cross-dataset & k-fold CV
+├── train_improved.py       # Training script comparing baseline and improved models
 ├── download_data.py        # PhysioNet dataset downloader
+│
+├── app.py                  # Streamlit dashboard entry point
+├── 1_gap_analysis.py       # Dashboard page: Gap Analysis
+├── 2_live_inference.py     # Dashboard page: Live Inference
+├── 3_graph_viewer.py       # Dashboard page: Dynamic Graph Viewer
+├── 4_results.py            # Dashboard page: Results Comparison
 │
 ├── requirements.txt
 ├── .gitignore
